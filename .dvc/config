@@ -1,0 +1,4 @@
+[core]
+    remote = origin
+['remote "origin"']
+    url = ../../lab8-dvc-storage

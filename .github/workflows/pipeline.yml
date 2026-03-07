@@ -1,0 +1,100 @@
+name: ML Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+
+  train:
+    runs-on: ubuntu-latest
+
+    outputs:
+      improved: ${{ steps.compare.outputs.improved }}
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.10
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install dvc
+        pip install jq
+
+    - name: Authenticate GitHub
+      env:
+        GH_PAT: ${{ secrets.GH_PAT }}
+      run: |
+        git config --global credential.helper store
+        echo "https://${GH_PAT}:x-oauth-basic@github.com" > ~/.git-credentials
+
+    - name: Pull dataset
+      run: dvc pull
+
+    - name: Train model
+      run: python src/train.py
+
+    - name: Save previous metrics
+      run: |
+        if [ -f prev_metrics.json ]; then
+          cp prev_metrics.json old_metrics.json
+        else
+          echo '{"rmse": 999999}' > old_metrics.json
+        fi
+
+    - name: Compare metrics
+      id: compare
+      run: |
+        new_rmse=$(jq .rmse metrics.json)
+        old_rmse=$(jq .rmse old_metrics.json)
+
+        echo "New RMSE: $new_rmse"
+        echo "Old RMSE: $old_rmse"
+
+        if (( $(echo "$new_rmse < $old_rmse" | bc -l) )); then
+          echo "Model improved"
+          echo "improved=true" >> $GITHUB_OUTPUT
+          cp metrics.json prev_metrics.json
+        else
+          echo "Model did not improve"
+          echo "improved=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Upload metrics
+      uses: actions/upload-artifact@v4
+      with:
+        name: metrics
+        path: metrics.json
+
+
+  docker:
+    needs: train
+    if: needs.train.outputs.improved == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Login to DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/lab8-housing:latest .
+
+    - name: Push Docker image
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/lab8-housing:latest
