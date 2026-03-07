@@ -36,6 +36,10 @@ jobs:
         git config --global credential.helper store
         echo "https://${GH_PAT}:x-oauth-basic@github.com" > ~/.git-credentials
 
+    - name: Clone DVC storage repo
+      run: |
+        git clone https://github.com/2022bcs0059-lochana/lab8-dvc-storage ../lab8-dvc-storage
+
     - name: Pull dataset
       run: dvc pull
 
